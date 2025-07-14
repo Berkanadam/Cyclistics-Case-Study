@@ -1,0 +1,157 @@
+---
+title: "cyclistic_analysis"
+author: "Joshua Valdez"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+```
+
+## Joining and loading the data
+
+In the first step of this analysis process, I decided to start by obtaining the data from the official Divvy website: <https://divvy-tripdata.s3.amazonaws.com/index.html> 
+
+Afterwards, I proceeded to clean them using Excel and then transforming them into .xlsx files, as I downloaded the 12 months files for 2024, the files and amount were so large that I decided to work with them in R and join them altogether by using the map_df() as follows:
+
+```{r}
+files <- list.files(path = "Datos_Cyclistic/", pattern = "*.xlsx", full.names = TRUE)
+
+read_and_clean <- function(file) {
+  read_excel(file) %>%
+    clean_names() %>%
+    mutate(
+      end_station_id = as.character(end_station_id),
+      start_station_id = as.character(start_station_id)
+    )
+}
+
+cyclistic_data <- files %>%
+  map_df(read_and_clean)
+```
+
+
+## Cleaning (again) and Transformation
+
+After having a single dataframe, I proceeded to clean the columns and transforming the data into much more useful columns such as ride_length, day_of_week and month, check the code here:
+
+```{r}
+cyclistic_data <- cyclistic_data %>%
+  mutate(
+    started_at = ymd_hms(started_at),
+    ended_at = ymd_hms(ended_at),
+    ride_length = as.numeric(difftime(ended_at, started_at, units = "secs")),
+    day_of_week = wday(started_at, label = TRUE, abbr = FALSE),
+    month = month(started_at, label = TRUE, abbr = FALSE)
+  ) %>%
+  filter(ride_length > 0 & ride_length < 86400)
+```
+
+## Descriptive Analysis
+
+After the cleaning process was done and ensured that everything was right, it was time for the fun part, the analysis! I decided to do it in 3 steps:
+
+### Average duration by user
+```{r}
+duration_summary <- cyclistic_data %>%
+  group_by(member_casual) %>%
+  summarise(promedio_min = mean(ride_length) / 60)
+```
+
+### Rides by day
+```{r}
+rides_by_day <- cyclistic_data %>%
+  count(day_of_week, member_casual)
+```
+
+### Rides by month
+```{r}
+rides_by_month <- cyclistic_data %>%
+  count(month, member_casual)
+```
+
+## Basic Viz
+
+I decided to practice using some ggplot2 graphics, so I created some simple graphics, check out the code here:
+
+### Rides by day
+```{r}
+ggplot(cyclistic_data, aes(x = day_of_week, fill = member_casual)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Total rides by day", x = "Day of week", y = "Rides") +
+  theme_minimal()
+```
+
+### Average duration by user
+```{r}
+cyclistic_data %>%
+  group_by(member_casual) %>%
+  summarise(avg_minutes = mean(ride_length) / 60) %>%
+  ggplot(aes(x = member_casual, y = avg_minutes, fill = member_casual)) +
+  geom_col() +
+  labs(title = "AVG duration by user", y = "Mins") +
+  theme_minimal()
+```
+
+## Summaries Exportation
+
+After finishing with everything in the fun part, it was time to get back to coding basics and export the results into an Excel Workbook following this code:
+
+```{r}
+wb <- createWorkbook()
+
+addWorksheet(wb, "AVG duration")
+writeData(wb, "AVG duration", duration_summary)
+
+addWorksheet(wb, "Rides by month")
+writeData(wb, "Rides by month", rides_by_month)
+
+addWorksheet(wb, "Rides by day")
+writeData(wb, "Rides by day", rides_by_day)
+
+saveWorkbook(wb, "cyclistic_summary.xlsx", overwrite = TRUE)
+```
+
+## Analysis Interpretation
+
+### Who rides more? When?
+
+Member users make a considerably higher number of trips compared to casual users, especially during weekdays. This behavior reinforces the hypothesis that members use the service as a daily means of transportation, likely for commuting or regular commitments.
+
+However, this difference does not exceed 55% on average, suggesting that additional factors influence the behavior of casual users, motivating them to use bicycles even on weekdays. This phenomenon is most intensely observed between the months of April and October, when use by casual users increases significantly. This may be associated with more favorable weather, urban tourism, or special events.
+
+### How long are their trips?
+
+The average trip duration shows a clear distinction between the two types of users:
+- Casual users: 21.3 minutes
+- Members: 12.3 minutes
+
+This pattern suggests that members make shorter but consistent trips, oriented toward efficiency and practicality. In contrast, casual users tend to make longer trips, albeit less frequently. This behavior may be related to recreational or tourist activities, especially in peak usage months.
+
+### Are there seasonal or weekly patterns?
+
+#### Seasonal:
+- Casual users show a clear seasonal pattern, with a significant increase in activity between April and October.
+- Members maintain more consistent usage throughout the year, with slight drops in the colder months.
+
+#### Weekly:
+- Members maintain regular usage throughout the week, with slight peaks at the beginning of the workweek.
+
+- Casual users, on the other hand, prefer weekends, where more intensive use is recorded, reflecting a more recreational intent.
+
+## Final Conclusion
+
+This analysis highlights the substantial differences in usage habits between both user segments. While members represent a solid base of consistent daily trips, casual users contribute a significant volume of seasonal and leisure trips.
+
+This information can be useful for:
+- Designing targeted campaigns to convert casual users into members during peak usage months.
+- Reinforcing infrastructure on weekends and peak travel dates.
+- Incentivizing recreational use with routes and events during peak season.
+- Maintaining member loyalty strategies year-round.
